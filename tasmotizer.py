@@ -518,7 +518,7 @@ class Tasmotizer(QDialog):
 
         # Banner
         banner = QLabel()
-        banner.setPixmap(QPixmap(':/banner.png'))
+        banner.setPixmap(QPixmap('./newBanner.jpeg'))
         self.vl.addWidget(banner)
 
         # Port groupbox
