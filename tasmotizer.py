@@ -22,7 +22,7 @@ import banner
 from gui import HLayout, VLayout, GroupBoxH, GroupBoxV, SpinBox, dark_palette
 from utils import MODULES, NoBinFile, NetworkError
 
-__version__ = '1.2.1'
+__version__ = '1.0.0'
 
 BINS_URL = 'http://ota.tasmota.com'
 
@@ -35,7 +35,7 @@ class ESPWorker(QObject):
     def __init__(self, port, actions, **params):
         super().__init__()
         self.command = [
-                      '--chip', 'esp8266',
+                      '--chip', 'auto',
                       '--port', port,
                       '--baud', '115200'
             ]
@@ -490,6 +490,7 @@ class Tasmotizer(QDialog):
         self.settings = QSettings('tasmotizer.cfg', QSettings.IniFormat)
 
         self.port = ''
+        self.numberOfPorts = 6
 
         self.nam = QNetworkAccessManager()
         self.nrRelease = QNetworkRequest(QUrl(f'{BINS_URL}/tasmota/release/release.php'))
@@ -497,7 +498,7 @@ class Tasmotizer(QDialog):
 
         self.esp_thread = None
 
-        self.setWindowTitle(f'Tasmotizer {__version__}')
+        self.setWindowTitle(f'Tasmotizer Gang {__version__}')
         self.setMinimumWidth(480)
 
         self.mode = 0  # BIN file
@@ -512,25 +513,28 @@ class Tasmotizer(QDialog):
         self.getFeeds()
 
     def create_ui(self):
-        vl = VLayout(5)
-        self.setLayout(vl)
+        self.vl = VLayout(5)
+        self.setLayout(self.vl)
 
         # Banner
         banner = QLabel()
         banner.setPixmap(QPixmap(':/banner.png'))
-        vl.addWidget(banner)
+        self.vl.addWidget(banner)
 
         # Port groupbox
-        gbPort = GroupBoxH('Select port', 3)
-        self.cbxPort = QComboBox()
+        self.gbPort = GroupBoxV('Select port', 3)
+        self.cbxPort = [QComboBox() for i in range(self.numberOfPorts)]
+        for i in range(self.numberOfPorts):
+            self.gbPort.addWidget(self.cbxPort[i])
+        self.pbAddPort = QPushButton('+')
+        self.gbPort.addWidget(self.pbAddPort)
         pbRefreshPorts = QPushButton('Refresh')
-        gbPort.addWidget(self.cbxPort)
-        gbPort.addWidget(pbRefreshPorts)
-        gbPort.layout().setStretch(0, 4)
-        gbPort.layout().setStretch(1, 1)
+        self.gbPort.addWidget(pbRefreshPorts)
+        self.gbPort.layout().setStretch(0, 4)
+        self.gbPort.layout().setStretch(1, 1)
 
         # Firmware groupbox
-        gbFW = GroupBoxV('Select image', 3)
+        self.gbFW = GroupBoxV('Select image', 3)
 
         hl_rb = HLayout(0)
         rbFile = QRadioButton('BIN file')
@@ -539,13 +543,13 @@ class Tasmotizer(QDialog):
         self.rbDev = QRadioButton('Development')
         self.rbDev.setEnabled(False)
 
-        self.rbgFW = QButtonGroup(gbFW)
+        self.rbgFW = QButtonGroup(self.gbFW)
         self.rbgFW.addButton(rbFile, 0)
         self.rbgFW.addButton(self.rbRelease, 1)
         self.rbgFW.addButton(self.rbDev, 2)
 
         hl_rb.addWidgets([rbFile, self.rbRelease, self.rbDev])
-        gbFW.addLayout(hl_rb)
+        self.gbFW.addLayout(hl_rb)
 
         self.wFile = QWidget()
         hl_file = HLayout(0)
@@ -563,7 +567,7 @@ class Tasmotizer(QDialog):
         self.cbSelfReset = QCheckBox('Self-resetting device (NodeMCU, Wemos)')
         self.cbSelfReset.setToolTip('Check if your device has self-resetting capabilities supported by esptool')
 
-        gbBackup = GroupBoxV('Backup')
+        self.gbBackup = GroupBoxV('Backup')
         self.cbBackup = QCheckBox('Save original firmware')
         self.cbBackup.setToolTip('Firmware backup is ESPECIALLY recommended when you flash a Sonoff, Tuya, Shelly etc. for the first time.\nWithout a backup you will not be able to restore the original functionality.')
 
@@ -576,14 +580,14 @@ class Tasmotizer(QDialog):
         hl_backup_size.setStretch(0, 3)
         hl_backup_size.setStretch(1, 1)
 
-        gbBackup.addWidget(self.cbBackup)
-        gbBackup.addLayout(hl_backup_size)
+        self.gbBackup.addWidget(self.cbBackup)
+        self.gbBackup.addLayout(hl_backup_size)
 
         self.cbErase = QCheckBox('Erase before flashing')
         self.cbErase.setToolTip('Erasing previous firmware ensures all flash regions are clean for Tasmota, which prevents many unexpected issues.\nIf unsure, leave enabled.')
         self.cbErase.setChecked(True)
 
-        gbFW.addWidgets([self.wFile, self.cbHackboxBin, self.cbSelfReset, self.cbErase])
+        self.gbFW.addWidgets([self.wFile, self.cbHackboxBin, self.cbSelfReset, self.cbErase])
 
         # Buttons
         self.pbTasmotize = QPushButton('Tasmotize!')
@@ -605,9 +609,10 @@ class Tasmotizer(QDialog):
         hl_btns = HLayout([50, 3, 50, 3])
         hl_btns.addWidgets([self.pbTasmotize, self.pbConfig, self.pbGetIP, self.pbQuit])
 
-        vl.addWidgets([gbPort, gbBackup, gbFW])
-        vl.addLayout(hl_btns)
+        self.vl.addWidgets([self.gbPort, self.gbBackup, self.gbFW])
+        self.vl.addLayout(hl_btns)
 
+        self.pbAddPort.clicked.connect(self.addPort)
         pbRefreshPorts.clicked.connect(self.refreshPorts)
         self.rbgFW.buttonClicked[int].connect(self.setBinMode)
         rbFile.setChecked(True)
@@ -619,13 +624,37 @@ class Tasmotizer(QDialog):
         self.pbConfig.clicked.connect(self.send_config)
         self.pbGetIP.clicked.connect(self.get_ip)
         self.pbQuit.clicked.connect(self.reject)
+    
+    def addPort(self):
+        self.numberOfPorts += 1
+        self.gbPort.deleteLater()
+        
+        self.gbPort = GroupBoxV('Select port', 3)
+        self.cbxPort = [QComboBox() for i in range(self.numberOfPorts)]
+        for i in range(self.numberOfPorts):
+            self.gbPort.addWidget(self.cbxPort[i])
+        self.pbAddPort = QPushButton('+')
+        self.gbPort.addWidget(self.pbAddPort)
+        pbRefreshPorts = QPushButton('Refresh')
+        self.gbPort.addWidget(pbRefreshPorts)
+        self.gbPort.layout().setStretch(0, 4)
+        self.gbPort.layout().setStretch(1, 1)
+
+        self.vl.insertWidget(1, self.gbPort)
+
+        self.pbAddPort.clicked.connect(self.addPort)
+        pbRefreshPorts.clicked.connect(self.refreshPorts)
+
+        self.refreshPorts()
 
     def refreshPorts(self):
-        self.cbxPort.clear()
-        ports = reversed(sorted(port.portName() for port in QSerialPortInfo.availablePorts()))
-        for p in ports:
-            port = QSerialPortInfo(p)
-            self.cbxPort.addItem(port.portName(), port.systemLocation())
+        for i in range(self.numberOfPorts):
+            self.cbxPort[i].clear()
+            ports = reversed(sorted(port.portName() for port in QSerialPortInfo.availablePorts()))
+            self.cbxPort[i].addItem("None")
+            for p in ports:
+                port = QSerialPortInfo(p)
+                self.cbxPort[i].addItem(port.portName(), port.systemLocation())
 
     def setBinMode(self, radio):
         self.mode = radio
@@ -683,7 +712,7 @@ class Tasmotizer(QDialog):
             self.file.setText(file)
 
     def get_ip(self):
-        self.port = QSerialPort(self.cbxPort.currentData())
+        self.port = QSerialPort(self.cbxPort[0].currentData())
         self.port.setBaudRate(115200)
 
         DeviceIP(self.port).exec_()
@@ -692,80 +721,95 @@ class Tasmotizer(QDialog):
             self.port.close()
 
     def send_config(self):
+        result = False
         dlg = SendConfigDialog()
         if dlg.exec_() == QDialog.Accepted:
             if dlg.commands:
-                try:
-                    self.port = QSerialPort(self.cbxPort.currentData())
-                    self.port.setBaudRate(115200)
-                    self.port.open(QIODevice.ReadWrite)
-                    bytes_sent = self.port.write(bytes(dlg.commands, 'utf8'))
-                except Exception as e:
-                    QMessageBox.critical(self, 'Error', f'Port access error:\n{e}')
-                else:
-                    self.settings.setValue('gbWifi', dlg.gbWifi.isChecked())
-                    self.settings.setValue('AP', dlg.leAP.text())
+                for i in range(self.numberOfPorts):
+                    if str(self.cbxPort[i].currentData()) != "None":
+                        try:
+                            self.port = QSerialPort(self.cbxPort[i].currentData())
+                            self.port.setBaudRate(115200)
+                            self.port.open(QIODevice.ReadWrite)
+                            bytes_sent = self.port.write(bytes(dlg.commands, 'utf8'))
+                        except Exception as e:
+                            QMessageBox.critical(self, 'Error', f'Port access error:\n{e}')
+                        else:
+                            self.settings.setValue('gbWifi', dlg.gbWifi.isChecked())
+                            self.settings.setValue('AP', dlg.leAP.text())
 
-                    self.settings.setValue('gbRecWifi', dlg.gbRecWifi.isChecked())
+                            self.settings.setValue('gbRecWifi', dlg.gbRecWifi.isChecked())
 
-                    self.settings.setValue('gbMQTT', dlg.gbMQTT.isChecked())
-                    self.settings.setValue('Broker', dlg.leBroker.text())
-                    self.settings.setValue('Port', dlg.sbPort.value())
-                    self.settings.setValue('Topic', dlg.leTopic.text())
-                    self.settings.setValue('FullTopic', dlg.leFullTopic.text())
-                    self.settings.setValue('FriendlyName', dlg.leFriendlyName.text())
-                    self.settings.setValue('MQTTUser', dlg.leMQTTUser.text())
+                            self.settings.setValue('gbMQTT', dlg.gbMQTT.isChecked())
+                            self.settings.setValue('Broker', dlg.leBroker.text())
+                            self.settings.setValue('Port', dlg.sbPort.value())
+                            self.settings.setValue('Topic', dlg.leTopic.text())
+                            self.settings.setValue('FullTopic', dlg.leFullTopic.text())
+                            self.settings.setValue('FriendlyName', dlg.leFriendlyName.text())
+                            self.settings.setValue('MQTTUser', dlg.leMQTTUser.text())
 
-                    self.settings.setValue('gbModule', dlg.gbModule.isChecked())
-                    self.settings.setValue('ModuleMode', dlg.rbgModule.checkedId())
-                    self.settings.setValue('Module', dlg.cbModule.currentText())
-                    self.settings.setValue('Template', dlg.leTemplate.text())
-                    self.settings.sync()
+                            self.settings.setValue('gbModule', dlg.gbModule.isChecked())
+                            self.settings.setValue('ModuleMode', dlg.rbgModule.checkedId())
+                            self.settings.setValue('Module', dlg.cbModule.currentText())
+                            self.settings.setValue('Template', dlg.leTemplate.text())
+                            self.settings.sync()
 
+                            result = True
+                        finally:
+                            if self.port.isOpen():
+                                self.port.close()
+                if result == True:
                     QMessageBox.information(self, 'Done', 'Configuration sent ({} bytes)\nDevice will restart.'.format(bytes_sent))
-                finally:
-                    if self.port.isOpen():
-                        self.port.close()
+                else:
+                    QMessageBox.information(self, 'Done', 'None of ports are selected')
             else:
                 QMessageBox.information(self, 'Done', 'Nothing to send')
 
     def start_process(self):
-        try:
-            if self.mode == 0:
-                if len(self.file.text()) > 0:
-                    self.file_path = self.file.text()
-                    self.settings.setValue('bin_file', self.file_path)
-                else:
-                    raise NoBinFile
+        totalCount = 0
+        passCount = 0
+        failedPortList = []
+        for i in range(self.numberOfPorts):
+            if str(self.cbxPort[i].currentData()) != "None":
+                totalCount += 1
+                try:
+                    if self.mode == 0:
+                        if len(self.file.text()) > 0:
+                            self.file_path = self.file.text()
+                            self.settings.setValue('bin_file', self.file_path)
+                        else:
+                            raise NoBinFile
 
-            elif self.mode in (1, 2):
-                self.file_path = self.cbHackboxBin.currentData()
+                    elif self.mode in (1, 2):
+                        self.file_path = self.cbHackboxBin.currentData()
 
-            process_dlg = ProcessDialog(
-                self.cbxPort.currentData(),
-                file_path=self.file_path,
-                backup=self.cbBackup.isChecked(),
-                backup_size=self.cbxBackupSize.currentIndex(),
-                erase=self.cbErase.isChecked(),
-                auto_reset=self.cbSelfReset.isChecked()
-            )
-            result = process_dlg.exec_()
-            if result == QDialog.Accepted:
-                message = 'Process successful!'
-                if not self.cbSelfReset.isChecked():
-                    message += ' Power cycle the device.'
-
-                QMessageBox.information(self, 'Done', message)
-            elif result == QDialog.Rejected:
-                if process_dlg.exception:
-                    QMessageBox.critical(self, 'Error', str(process_dlg.exception))
-                else:
-                    QMessageBox.critical(self, 'Process aborted', 'The process has been aborted by the user.')
-            
-        except NoBinFile:
-            QMessageBox.critical(self, 'Image path missing', 'Select a binary to write, or select a different mode.')
-        except NetworkError as e:
-            QMessageBox.critical(self, 'Network error', e.message)
+                    process_dlg = ProcessDialog(
+                        self.cbxPort[i].currentData(),
+                        file_path=self.file_path,
+                        backup=self.cbBackup.isChecked(),
+                        backup_size=self.cbxBackupSize.currentIndex(),
+                        erase=self.cbErase.isChecked(),
+                        auto_reset=self.cbSelfReset.isChecked()
+                    )
+                    result = process_dlg.exec_()
+                    if result == QDialog.Accepted:
+                        passCount += 1
+                    elif result == QDialog.Rejected:
+                        failedPortList.append(self.cbxPort[i].currentData())
+                        if process_dlg.exception:
+                            QMessageBox.critical(self, 'Error', str(process_dlg.exception))
+                        else:
+                            QMessageBox.critical(self, 'Process aborted', 'The process has been aborted by the user.')
+                            break
+                    
+                except NoBinFile:
+                    QMessageBox.critical(self, 'Image path missing', 'Select a binary to write, or select a different mode.')
+                except NetworkError as e:
+                    QMessageBox.critical(self, 'Network error', e.message)
+        if totalCount == 0:
+            QMessageBox.information(self, 'Done', 'None of ports are selected')
+        else:
+            QMessageBox.information(self, 'Done', '{}/{} Succeed!\n\nFailed : {}'.format(passCount, totalCount, "None" if len(failedPortList) == 0 else '\n'.join(failedPortList)))
 
 
 def main():
